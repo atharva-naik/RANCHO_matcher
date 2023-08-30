@@ -3,17 +3,15 @@ import pandas as pd
 from typing import *
 from collections import defaultdict
 
-HARD_MATCH_COLUMNS = [] #["""Primary Preference 
-# Please select the most preferred language only. If you are equally comfortable in 2 languages (example - in both Hindi and a native language), you can select both options.
-# '""", "Gender"]
+HARD_MATCH_COLUMNS = []
 SOFT_MATCH_COLUMNS = ['Secondary Preference ', 'Primary Hobbies', 'Secondary Hobbies']
 
-def filter_for_regional_langs(langs: List[str]):
-    if len(langs) > 1:
+def filter_for_regional_langs(langs: List[str], hard_filter: bool=False):
+    if len(langs) > 1 or hard_filter:
         return [lang for lang in langs if lang not in ["hindi", "english"]]
     return langs
 
-def compute_mentoring_match(mentor_row, mentee_row, eps: float=0.01, hobby_match_tol: float=0.3):
+def compute_mentoring_match(mentor_row, mentee_row, eps: float=0.01, hobby_match_tol: float=0.05):
     """score the appropriateness of a mentor for a mentee
     
     - hobby_match_tol: The minimum amount of hobby overlap to trigger consideration of secondary language overlap.
@@ -26,8 +24,8 @@ def compute_mentoring_match(mentor_row, mentee_row, eps: float=0.01, hobby_match
     mentor_primary_langs = filter_for_regional_langs([lang.strip().lower() for lang in mentor_row[HARD_MATCH_COLUMNS[0]].split(",")])
     mentee_primary_langs = filter_for_regional_langs([lang.strip().lower() for lang in mentee_row[HARD_MATCH_COLUMNS[0]].split(",")])
     
-    mentor_secondary_langs = filter_for_regional_langs([lang.strip().lower() for lang in mentor_row[SOFT_MATCH_COLUMNS[0]].split(",")])
-    mentee_secondary_langs = filter_for_regional_langs([lang.strip().lower() for lang in mentee_row[SOFT_MATCH_COLUMNS[0]].split(",")])
+    mentor_secondary_langs = filter_for_regional_langs([lang.strip().lower() for lang in mentor_row[SOFT_MATCH_COLUMNS[0]].split(",")], hard_filter=True)
+    mentee_secondary_langs = filter_for_regional_langs([lang.strip().lower() for lang in mentee_row[SOFT_MATCH_COLUMNS[0]].split(",")], hard_filter=True)
     
     lang_match = int(len(set(mentor_primary_langs).intersection(set(mentee_primary_langs))) > 0)
     gender_match = int(mentor_row[HARD_MATCH_COLUMNS[1]] == mentee_row[HARD_MATCH_COLUMNS[1]])
@@ -39,8 +37,8 @@ def compute_mentoring_match(mentor_row, mentee_row, eps: float=0.01, hobby_match
     except ZeroDivisionError: sec_lang_match = eps
     if sec_lang_match == 0: sec_lang_match = eps
     
-    mentor_hobbies = [hobby.strip().lower() for hobby in mentor_row[SOFT_MATCH_COLUMNS[1]].split(",")]
-    mentee_hobbies = [hobby.strip().lower() for hobby in mentee_row[SOFT_MATCH_COLUMNS[1]].split(",")]
+    mentor_hobbies = [hobby.strip().lower() for hobby in mentor_row[SOFT_MATCH_COLUMNS[1]].split(",")+ mentor_row[SOFT_MATCH_COLUMNS[2]].split(",")]
+    mentee_hobbies = [hobby.strip().lower() for hobby in mentee_row[SOFT_MATCH_COLUMNS[1]].split(",")+mentee_row[SOFT_MATCH_COLUMNS[2]].split(",")]
     hobby_match = len(set(mentor_hobbies).intersection(set(mentee_hobbies)))/len(set(mentee_hobbies))
 
     hard_score = lang_match * gender_match
@@ -79,12 +77,25 @@ if __name__ == "__main__":
         mentoring_matches = sorted(mentoring_match_scores.items(), key=lambda x: x[1][0], reverse=True)
         assigned_mentor = mentoring_matches[0][0]
         assigned_mentor_gender = mentor_to_row[assigned_mentor]["Gender"]
+        assigned_mentor_hobbies = mentor_to_row[assigned_mentor][SOFT_MATCH_COLUMNS[0]] + ", " + mentor_to_row[assigned_mentor][SOFT_MATCH_COLUMNS[1]]
+        mentee_hobbies = mentee[SOFT_MATCH_COLUMNS[0]] + ", " + mentee[SOFT_MATCH_COLUMNS[1]]
         assigning_reason = mentoring_matches[0][1][1]
         assigning_score = mentoring_matches[0][1][0]
         mentor_load[assigned_mentor] += 1
+        # print(mentee["Name "], mentoring_matches[:2])
+        mentor_mentee_assignment.append({
+            "Mentee": mentee["Name "], 
+            "Mentee Gender": mentee["Gender"], 
+            "Mentor": assigned_mentor, 
+            "Mentor Gender": assigned_mentor_gender, 
+            "Reason": assigning_reason, 
+            "Score": assigning_score,
+            "Mentor Hobbies": assigned_mentor_hobbies, 
+            "Mentee Hobbies": mentee_hobbies, 
+            "Mentor Primary Lang(s)": mentor_to_row[assigned_mentor][HARD_MATCH_COLUMNS[0]], 
+            "Mentee Primary Lang(s)": mentee[HARD_MATCH_COLUMNS[0]]
+        })
         if mentor_load[assigned_mentor] == 3:
             del mentor_to_row[assigned_mentor]
-        # print(mentee["Name "], mentoring_matches[:2])
-        mentor_mentee_assignment.append({"Mentee": mentee["Name "], "Mentee Gender": mentee["Gender"], "Mentor": assigned_mentor, "Mentor Gender": assigned_mentor_gender, "Reason": assigning_reason, "Score": assigning_score})
     df = pd.DataFrame(mentor_mentee_assignment)
     df.to_csv("assignment.csv", index=False)
